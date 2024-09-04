@@ -1,0 +1,237 @@
+---
+title: "Newsvendor notes"
+author: "Me"
+date: "`r Sys.Date()`"
+output: 
+  html_document:
+    theme: flatly
+    toc: true
+    toc_float: true
+    toc_collapsed: true
+    toc_depth: 3
+---
+
+**THESE NOTES ARE A WORK IN PROGRESS AND UPDATES TO COME**
+
+```{r setup, include=FALSE, message=FALSE, warning=FALSE}
+library(tidyverse)
+
+plot_shaded_normal <- function(mean, sd, p = 0.5) {
+  shade_up_to_x <- qnorm(p, mean = mean, sd = sd)
+
+  data_normal <- data.frame(
+    x = seq(mean - 4 * sd, mean + 4 * sd, length.out = 300)
+  ) |>
+    mutate(y = dnorm(x, mean = mean, sd = sd))
+
+  shaded_data_normal <- data_normal |>
+    filter(x <= shade_up_to_x)
+
+  ggplot(data_normal, aes(x = x, y = y)) +
+    geom_line() +
+    geom_area(
+      data = shaded_data_normal,
+      aes(x = x, y = y),
+      fill = "#ff8800",
+      alpha = 0.3
+    ) +
+    geom_vline(xintercept = shade_up_to_x)
+}
+
+plot_normal_newsvendor <- function(demand_mean, demand_sd, unit_cost, unit_price, unit_salvage) {
+  Cu <- unit_price - unit_cost
+  Co <- unit_cost - unit_salvage
+  critical_ratio <- Cu / (Cu + Co)
+
+  q_star <- qnorm(critical_ratio, mean = demand_mean, sd = demand_sd)
+
+  base_plot <- plot_shaded_normal(
+    mean = demand_mean,
+    sd = demand_sd,
+    p = critical_ratio
+  )
+
+  chart_title <- sprintf(
+    "Optimal Order Quantity (Q*) = %.2f",
+    q_star
+  )
+  chart_subtitle <- sprintf(
+    "Co = %.1f; Cu = %.1f; CR = %.2f",
+    Co, Cu, critical_ratio
+  )
+
+  base_plot +
+    labs(
+      title = chart_title,
+      subtitle = chart_subtitle
+    )
+}
+```
+
+Assigned paper:
+
+Dana Jr, J. D., & Petruzzi, N. C.
+(2001).
+Note: The newsvendor model with endogenous demand.
+Management Science, 47(11), 1488-1497.
+<https://doi.org/10.1287/mnsc.47.11.1488.10252>
+
+## Some unofficial background resources for newsvendor
+
+Metrics for choosing a resource here: (1) I was able to pay attention to it easily enough, & (2) I felt I learned something about newsvendor.
+
+Not metrics for choosing a resource here: (1) rigor, (2) Completeness, etc...
+
+-   4 part intro series by Piyush Shah (less than 21 minutes total)
+    -   <https://youtube.com/playlist?list=PLsJeWWZGL5VRKmaCStdjO9xnXInS_5JwH&si=eYGSN9SA14thuvoN>
+
+## More official background resources for newsvendor
+
+-   A review of literature on single-period newsvendor
+    -   Khouja, M. 1999. The single-period (news-vendor) problem: Literature review and suggestions for future research. Omega 27 537–553. https://doi.org/10.1016/S0305-0483(99)00017-1
+
+------------------------------------------------------------------------
+
+## Classic newsvendor model
+
+If you sell perishable goods, how much should you order per day?
+You lose money if you order more than the day's demand because the items are perishable.
+You lose money if you order fewer goods than demand because you've lost potential sales.
+How do you find the **Optimal Order Quantity**???
+
+Parameters needed:
+
+-   $D$ - Demand uncertainty (distribution)
+
+-   $C$ - Unit cost - cost for newsvendor to buy each unit from supplier
+
+-   $P$ - Unit selling price - cost for customer to buy each unit from newsvendor
+
+-   $S$ - Unit salvage - can represent *either*
+
+    -   Per unit value to sell excess inventory at perhaps a discounted rate
+
+    -   Per unit cost to dispose of excess inventory
+
+**Optimal Order Quantity (**$Q^*$):
+
+$$
+Q^* = F^{-1}(\frac{Cu}{Cu + Co})
+$$
+
+------------------------------------------------------------------------
+
+-   $F^{-1}$ is the inverse CDF of $D$
+
+    -   $D$ - Demand - typically modeled as random variable with known distribution (normal, poisson, etc... informed by context+historical data)
+
+    -   Remember inverse CDF is like going from $p$ value to $\text{critical value}$
+
+```{r}
+# e.g. from hypothesis testing we use the inverse normal cdf
+qnorm(0.05)
+qnorm(0.95)
+```
+
+-   $\frac{Cu}{Cu + Co}$ - the "critical ratio"
+
+    -   Intuition
+
+        -   Shows relationship between overage cost and underage cost on [0, 1]
+
+            -   When $Cu < Co \to \text{critical ratio} < 0.5$
+
+            -   When $Cu = Co \to \text{critical ratio} = 0.5$
+
+            -   When $Cu > Co \to \text{critical ratio} > 0.5$
+
+        -   **We like the [0,1] range as this will map to the distribution of demand to inform optimal order quantity. We will find** $Q^*$ **where the area under the demand distribution is equal to the** $\text{critical ratio}$ **(using demand curve's inverse CDF)**
+
+    -   $Co = C - S$ - unit overage cost
+
+        -   How much money do we lose by having too much inventory?
+
+        -   Is a function of how much you originally paid per unit $C$ and subtract how much you can resell for $S$ (aka salvage).
+            Note if $S < 0$ this is incurring additional cost of disposal
+
+    -   $Cu = P - C$ - unit underage cost
+
+        -   How much money do we lose by having to little inventory?
+            (opportunity cost)
+
+        -   Really just a formula for profit per unit, but think of as a loss since it's a sale we could've made given enough inventory.
+
+        -   NOTE: some formulations include the value of a "loss of good will"; meaning not only did we lose a sale, but a repeated stock-out event can lose customers: $Cu = (P-C) + \text{Loss of Goodwill}$
+
+### Worked example
+
+Example for normal demand.
+
+```{r}
+# Example for normal demand
+
+# Demand distribution params (normal in this case)
+demand_mean <- 100
+demand_sd <- 10
+
+# Cost params
+unit_cost <- 10
+unit_price <- 15
+unit_salvage <- 2
+```
+
+```{r}
+# Calculate overage and underage
+(Cu <- unit_price - unit_cost)
+(Co <- unit_cost - unit_salvage)
+```
+
+```{r}
+# Calculate critical ratio
+(critical_ratio <- Cu / (Cu + Co))
+```
+
+```{r}
+# Calculate Q*
+(q_star <- qnorm(critical_ratio, mean = demand_mean, sd = demand_sd))
+```
+
+That case visualized on the demand distribution:
+
+```{r}
+plot_normal_newsvendor(
+  demand_mean = 100,
+  demand_sd = 10,
+  unit_cost = 10,
+  unit_price = 15,
+  unit_salvage = 2
+)
+```
+
+A case where $Cu$ >> $Co$.  
+
+Any sale is too valuable to miss, stock for highest cases of demand.
+
+```{r}
+plot_normal_newsvendor(
+  demand_mean = 100,
+  demand_sd = 10,
+  unit_cost = 10,
+  unit_price = 500,
+  unit_salvage = 2
+)
+```
+
+A case where $Cu$ << $Co$.  
+
+Having more inventory than demand is very costly, prioritize having no leftovers.
+
+```{r}
+plot_normal_newsvendor(
+  demand_mean = 100,
+  demand_sd = 10,
+  unit_cost = 100,
+  unit_price = 101,
+  unit_salvage = 0
+)
+```
